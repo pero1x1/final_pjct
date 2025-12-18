@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Credit Scoring</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1220;
+        --panel: #0f1a2e;
+        --text: #e6eefc;
+        --muted: #9bb0d2;
+        --accent: #4aa3ff;
+        --danger: #ff5a66;
+        --border: rgba(255, 255, 255, 0.12);
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+          "Apple Color Emoji", "Segoe UI Emoji";
+        background: radial-gradient(1200px 800px at 20% 0%, #0d1b3a 0%, var(--bg) 55%, #070b14 100%);
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 16px 48px;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0;
+        letter-spacing: 0.2px;
+      }
+      .hint {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        background: rgba(15, 26, 46, 0.78);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        backdrop-filter: blur(8px);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(74, 163, 255, 0.12);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: rgba(74, 163, 255, 0.55);
+      }
+      button.secondary {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      textarea {
+        width: 100%;
+        min-height: 320px;
+        resize: vertical;
+        background: rgba(0, 0, 0, 0.25);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+      pre {
+        width: 100%;
+        min-height: 320px;
+        margin: 0;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+      .status {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .status.ok {
+        color: #8bffb1;
+      }
+      .status.err {
+        color: var(--danger);
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>Credit Scoring</h1>
+          <div class="hint">
+            UI для проверки API. Backend доступен по <code>/api</code> (например,
+            <code>/api/health</code>).
+          </div>
+        </div>
+        <div class="hint">
+          <span>Docs:</span> <a href="/api/docs" target="_blank" rel="noreferrer">/api/docs</a>
+        </div>
+      </header>
+
+      <div class="grid">
+        <section class="card">
+          <div class="row" style="justify-content: space-between">
+            <div class="row">
+              <button id="btn-health" class="secondary">Health</button>
+              <button id="btn-predict">Predict</button>
+            </div>
+            <div id="status" class="status">Готово</div>
+          </div>
+          <div style="height: 10px"></div>
+          <textarea id="payload" spellcheck="false"></textarea>
+          <div class="hint" style="margin-top: 10px">
+            Отправляется <code>POST /api/predict</code> с JSON из поля выше.
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="hint" style="margin-bottom: 10px">Ответ API</div>
+          <pre id="out"></pre>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const outEl = document.getElementById("out");
+      const payloadEl = document.getElementById("payload");
+
+      payloadEl.value = JSON.stringify(
+        {
+          LIMIT_BAL: 120000,
+          AGE: 29,
+          BILL_AMT1: 500,
+          BILL_AMT2: 600,
+          BILL_AMT3: 600,
+          BILL_AMT4: 600,
+          BILL_AMT5: 600,
+          BILL_AMT6: 400,
+          PAY_AMT1: 0,
+          PAY_AMT2: 0,
+          PAY_AMT3: 0,
+          PAY_AMT4: 0,
+          PAY_AMT5: 0,
+          PAY_AMT6: 0,
+          utilization1: 0,
+          payment_ratio1: 0,
+          max_delay: 0,
+          SEX: 2,
+          EDUCATION: 2,
+          MARRIAGE: 1,
+          PAY_0: 0,
+          PAY_2: 0,
+          PAY_3: 0,
+          PAY_4: 0,
+          PAY_5: 0,
+          PAY_6: 0,
+        },
+        null,
+        2
+      );
+
+      function setStatus(text, kind) {
+        statusEl.className = "status" + (kind ? " " + kind : "");
+        statusEl.textContent = text;
+      }
+
+      function print(obj) {
+        outEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+      }
+
+      async function doHealth() {
+        setStatus("Запрос /api/health…", "");
+        try {
+          const r = await fetch("/api/health", { method: "GET" });
+          const txt = await r.text();
+          print({ status: r.status, body: safeJson(txt) ?? txt });
+          setStatus(r.ok ? "OK" : "Ошибка", r.ok ? "ok" : "err");
+        } catch (e) {
+          print(String(e));
+          setStatus("Ошибка", "err");
+        }
+      }
+
+      async function doPredict() {
+        setStatus("Запрос /api/predict…", "");
+        let payload;
+        try {
+          payload = JSON.parse(payloadEl.value);
+        } catch (e) {
+          setStatus("Невалидный JSON", "err");
+          print({ error: "Invalid JSON", details: String(e) });
+          return;
+        }
+        try {
+          const r = await fetch("/api/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const txt = await r.text();
+          print({ status: r.status, body: safeJson(txt) ?? txt });
+          setStatus(r.ok ? "OK" : "Ошибка", r.ok ? "ok" : "err");
+        } catch (e) {
+          print(String(e));
+          setStatus("Ошибка", "err");
+        }
+      }
+
+      function safeJson(text) {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
+        }
+      }
+
+      document.getElementById("btn-health").addEventListener("click", doHealth);
+      document.getElementById("btn-predict").addEventListener("click", doPredict);
+    </script>
+  </body>
+</html>
+

@@ -1,0 +1,7 @@
+[core]
+    remote = storage
+    no_scm = true
+['remote "storage"']
+    url = s3://credit-scoring-tfstate-staging-b1gh235jp3f284fe2gdn/dvc
+    endpointurl = https://storage.yandexcloud.net
+    region = ru-central1

@@ -1,0 +1,45 @@
+stages:
+  prepare:
+    cmd: python src/data/make_dataset.py data/raw/UCI_Credit_Card.csv data/processed
+    deps:
+      - src/data/make_dataset.py
+      - data/raw/UCI_Credit_Card.csv
+    outs:
+      - data/processed/train_base.csv
+      - data/processed/test_base.csv
+      - data/processed/summary_base.json    
+
+  features:
+    cmd: python src/features/build_features.py data/processed
+    deps:
+      - src/features/build_features.py
+      - data/processed/train_base.csv
+      - data/processed/test_base.csv
+    outs:
+      - data/processed/train.csv
+      - data/processed/test.csv
+    metrics:
+      - data/processed/summary.json:       
+          cache: false
+
+  train:
+    cmd: python src/models/train.py --proc_dir data/processed --model_path models/credit_default_model.pkl --metrics_path metrics.json --roc_path artifacts/roc.png
+    deps:
+      - src/models/train.py
+      - data/processed/train.csv
+      - data/processed/test.csv
+    outs:
+      - models/credit_default_model.pkl
+      - artifacts/roc.png
+    metrics:
+      - metrics.json:
+          cache: false
+
+  monitor:
+    cmd: python src/monitor/psi.py --train data/processed/train.csv --stream data/processed/test.csv --out artifacts/psi.json
+    deps:
+      - src/monitor/psi.py
+      - data/processed/train.csv
+      - data/processed/test.csv
+    outs:
+      - artifacts/psi.json

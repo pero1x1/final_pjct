@@ -1,4 +1,19 @@
-﻿ .venv/ 
-__pycache__/ 
-*.pyc 
+.venv/
+__pycache__/
+*.pyc
 .DS_Store
+.pytest_cache/
+
+# Local credentials (do not commit)
+.aws/
+
+# MLflow local runs/artifacts
+mlruns/
+
+# Terraform local state/keys (do not commit)
+infra/terraform/**/.terraform/
+infra/terraform/**/terraform.tfstate*
+infra/terraform/**/sa-key.json
+
+# K8s secrets (create from *.example, do not commit)
+k8s/*secret*.yaml

@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: credit-scoring
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      initContainers:
+        - name: dvc-pull
+          image: cr.yandex/crpqca4kakrse7er8nvl/credit-backend:staging
+          imagePullPolicy: Always
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "Running dvc pull..."
+              dvc pull -v
+              echo "Pulled artifacts:"
+              ls -la /app/models || true
+              ls -la /app/data || true
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: s3-credentials
+          volumeMounts:
+            - name: dvc-data
+              mountPath: /app/models
+            - name: dvc-data
+              mountPath: /app/data
+      containers:
+        - name: backend
+          image: cr.yandex/crpqca4kakrse7er8nvl/credit-backend:staging
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: s3-credentials
+          volumeMounts:
+            - name: dvc-data
+              mountPath: /app/models
+            - name: dvc-data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: dvc-data
+          emptyDir: {}

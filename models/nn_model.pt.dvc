@@ -1,0 +1,5 @@
+outs:
+- md5: 950e651e248323bc315e3baae04f054a
+  size: 51859
+  hash: md5
+  path: nn_model.pt

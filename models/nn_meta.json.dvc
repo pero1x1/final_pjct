@@ -1,0 +1,5 @@
+outs:
+- md5: 1fbd43a356d8cd78fb8605a34be8e114
+  size: 1586
+  hash: md5
+  path: nn_meta.json
