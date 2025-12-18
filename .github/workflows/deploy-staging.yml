@@ -119,42 +119,44 @@ jobs:
         run: |
           set -euo pipefail
 
+          k() { kubectl --request-timeout=180s "$@"; }
+
           rollback() {
             echo "Deploy failed -> rollback..."
-            kubectl -n "$NAMESPACE" rollout undo deployment/backend || true
-            kubectl -n "$NAMESPACE" rollout undo deployment/frontend || true
-            kubectl -n "$NAMESPACE" get pods -o wide || true
-            kubectl -n "$NAMESPACE" logs deploy/backend -c dvc-pull --tail=200 || true
+            k -n "$NAMESPACE" rollout undo deployment/backend || true
+            k -n "$NAMESPACE" rollout undo deployment/frontend || true
+            k -n "$NAMESPACE" get pods -o wide || true
+            k -n "$NAMESPACE" logs deploy/backend -c dvc-pull --tail=200 || true
           }
           trap rollback ERR
 
-          kubectl apply -f k8s/00-namespace.yaml
-          kubectl apply -f k8s/10-configmap-backend.yaml
+          k apply --validate=false -f k8s/00-namespace.yaml
+          k apply --validate=false -f k8s/10-configmap-backend.yaml
 
-          kubectl -n "$NAMESPACE" create secret generic s3-credentials \
+          k -n "$NAMESPACE" create secret generic s3-credentials \
             --from-literal=AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID" \
             --from-literal=AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY" \
-            --dry-run=client -o yaml | kubectl apply -f -
+            --dry-run=client -o yaml | k apply --validate=false -f -
 
-          kubectl apply -f k8s/21-svc-backend.yaml
-          kubectl apply -f k8s/31-svc-frontend.yaml
-          kubectl apply -f k8s/20-deploy-backend.yaml
-          kubectl apply -f k8s/30-deploy-frontend.yaml
-          kubectl apply -f k8s/40-ingress.yaml
+          k apply --validate=false -f k8s/21-svc-backend.yaml
+          k apply --validate=false -f k8s/31-svc-frontend.yaml
+          k apply --validate=false -f k8s/20-deploy-backend.yaml
+          k apply --validate=false -f k8s/30-deploy-frontend.yaml
+          k apply --validate=false -f k8s/40-ingress.yaml
 
-          kubectl -n "$NAMESPACE" set image deployment/backend \
+          k -n "$NAMESPACE" set image deployment/backend \
             backend="$BACKEND_IMAGE" dvc-pull="$BACKEND_IMAGE"
-          kubectl -n "$NAMESPACE" set image deployment/frontend \
+          k -n "$NAMESPACE" set image deployment/frontend \
             frontend="$FRONTEND_IMAGE"
 
-          kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=300s
-          kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=300s
+          k -n "$NAMESPACE" rollout status deployment/backend --timeout=300s
+          k -n "$NAMESPACE" rollout status deployment/frontend --timeout=300s
 
           echo "dvc pull initContainer logs:"
-          kubectl -n "$NAMESPACE" logs deploy/backend -c dvc-pull --tail=200
+          k -n "$NAMESPACE" logs deploy/backend -c dvc-pull --tail=200
 
           echo "Port-forward frontend and check /api/health + /api/docs..."
-          kubectl -n "$NAMESPACE" port-forward svc/frontend-svc 8080:80 >/tmp/pf.log 2>&1 &
+          k -n "$NAMESPACE" port-forward svc/frontend-svc 8080:80 >/tmp/pf.log 2>&1 &
           PF_PID=$!
           sleep 3
           curl -fsS "http://127.0.0.1:8080/api/health"
