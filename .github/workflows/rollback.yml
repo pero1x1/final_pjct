@@ -46,6 +46,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate required secrets
+        shell: bash
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "${YC_SA_KEY_JSON:-}" ]; then
+            echo "ERROR: secret YC_SA_KEY_JSON is empty or not set"
+            exit 1
+          fi
+          if [ -z "${CLUSTER_ID:-}" ]; then
+            echo "ERROR: CLUSTER_ID is empty (set input cluster_id or secret YC_K8S_CLUSTER_ID_STAGING)"
+            exit 1
+          fi
+
       - name: Install YC CLI
         shell: bash
         run: |
