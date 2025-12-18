@@ -28,13 +28,12 @@ def main():
     model.eval()
 
     sess = ort.InferenceSession(args.onnx, providers=["CPUExecutionProvider"])
-
     x = np.random.randn(256, n_features).astype(np.float32)
 
     with torch.no_grad():
-        torch_logits = model(torch.from_numpy(x)).numpy()  
+        torch_logits = model(torch.from_numpy(x)).numpy()
     onnx_logits = sess.run(None, {"x": x})[0]
-    onnx_logits = np.asarray(onnx_logits).reshape(-1)     
+    onnx_logits = np.asarray(onnx_logits).reshape(-1)
 
     diff = np.max(np.abs(torch_logits - onnx_logits))
     print("max_abs_diff_logits:", float(diff))

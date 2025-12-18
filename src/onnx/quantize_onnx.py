@@ -5,24 +5,22 @@ from onnxruntime.quantization import QuantType, quantize_dynamic
 
 
 def prepare_model(inp: Path, out: Path) -> None:
-    m = onnx.load(str(inp))
+    model = onnx.load(str(inp))
 
-    # чистим спорные value_info (часто они ломают shape inference)
-    m.graph.ClearField("value_info")
+    # Clear stale value_info to avoid shape inference issues.
+    model.graph.ClearField("value_info")
+    model = onnx.shape_inference.infer_shapes(model)
 
-    # прогоняем shape inference уже на "чистом" графе
-    m = onnx.shape_inference.infer_shapes(m)
-
-    onnx.save(m, str(out))
+    onnx.save(model, str(out))
 
 
-def main():
+def main() -> None:
     inp = Path("models/model.onnx")
     prepared = Path("models/model.prepared.onnx")
     out = Path("models/model.int8.onnx")
 
     if not inp.exists():
-        raise FileNotFoundError("Нет models/model.onnx (сначала export_onnx.py)")
+        raise FileNotFoundError("models/model.onnx not found (run export_onnx.py)")
 
     prepare_model(inp, prepared)
     print(f"Prepared: {prepared}")
@@ -31,9 +29,8 @@ def main():
         model_input=str(prepared),
         model_output=str(out),
         weight_type=QuantType.QInt8,
-        # важные опции для таких графов:
         extra_options={
-            "MatMulConstBOnly": True,                 # не трогать MatMul без константных весов
+            "MatMulConstBOnly": True,
             "DefaultTensorType": onnx.TensorProto.FLOAT,
         },
     )
