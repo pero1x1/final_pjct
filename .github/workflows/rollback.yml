@@ -1,0 +1,96 @@
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        required: true
+        options:
+          - staging
+          - production
+      component:
+        description: "Which component to rollback"
+        type: choice
+        required: true
+        options:
+          - backend
+          - frontend
+          - both
+      revision:
+        description: "Kubernetes revision (optional, e.g. 2)"
+        required: false
+      cluster_id:
+        description: "Override K8s cluster id (optional)"
+        required: false
+      namespace:
+        description: "Kubernetes namespace"
+        required: true
+        default: "credit-scoring"
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    # If K8s API is not reachable from GitHub-hosted runners, set repo variable DEPLOY_RUNNER=self-hosted.
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+
+    env:
+      NAMESPACE: ${{ github.event.inputs.namespace }}
+      CLUSTER_ID: ${{ github.event.inputs.cluster_id || secrets.YC_K8S_CLUSTER_ID_STAGING }}
+      COMPONENT: ${{ github.event.inputs.component }}
+      REVISION: ${{ github.event.inputs.revision }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install YC CLI
+        shell: bash
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -n
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+          yc --version
+
+      - name: Configure YC CLI (service account)
+        shell: bash
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$YC_SA_KEY_JSON" > sa-key.json
+          yc config profile create ci 2>/dev/null || true
+          yc config set service-account-key sa-key.json --profile ci
+          yc config profile activate ci
+          rm -f sa-key.json
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.32.1"
+
+      - name: Get kubeconfig
+        run: yc managed-kubernetes cluster get-credentials --id "$CLUSTER_ID" --external --force
+
+      - name: Rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REV_FLAG=""
+          if [ -n "${REVISION:-}" ]; then
+            REV_FLAG="--to-revision=${REVISION}"
+          fi
+
+          if [ "$COMPONENT" = "backend" ] || [ "$COMPONENT" = "both" ]; then
+            kubectl -n "$NAMESPACE" rollout undo deployment/backend $REV_FLAG
+          fi
+
+          if [ "$COMPONENT" = "frontend" ] || [ "$COMPONENT" = "both" ]; then
+            kubectl -n "$NAMESPACE" rollout undo deployment/frontend $REV_FLAG
+          fi
+
+          kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=300s || true
+          kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=300s || true
+          kubectl -n "$NAMESPACE" get pods -o wide

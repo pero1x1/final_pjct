@@ -1,0 +1,131 @@
+name: deploy-production
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Override K8s cluster id (optional)"
+        required: false
+      namespace:
+        description: "Kubernetes namespace"
+        required: true
+        default: "credit-scoring"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    environment: production
+    # If K8s API is not reachable from GitHub-hosted runners, set repo variable DEPLOY_RUNNER=self-hosted.
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+
+    env:
+      NAMESPACE: ${{ github.event.inputs.namespace || 'credit-scoring' }}
+      CLUSTER_ID: ${{ github.event.inputs.cluster_id || secrets.YC_K8S_CLUSTER_ID_STAGING }}
+      REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
+      BACKEND_IMAGE: cr.yandex/${{ secrets.YC_REGISTRY_ID }}/credit-backend:${{ github.sha }}
+      FRONTEND_IMAGE: cr.yandex/${{ secrets.YC_REGISTRY_ID }}/credit-frontend:${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install YC CLI
+        shell: bash
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -n
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+          yc --version
+
+      - name: Configure YC CLI (service account)
+        shell: bash
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$YC_SA_KEY_JSON" > sa-key.json
+          yc config profile create ci 2>/dev/null || true
+          yc config set service-account-key sa-key.json --profile ci
+          yc config profile activate ci
+          rm -f sa-key.json
+
+      - name: Configure Docker for YCR
+        run: yc container registry configure-docker
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push backend (YCR)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/backend/Dockerfile
+          push: true
+          tags: |
+            cr.yandex/${{ secrets.YC_REGISTRY_ID }}/credit-backend:${{ github.sha }}
+
+      - name: Build & push frontend (YCR)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/frontend/Dockerfile
+          push: true
+          tags: |
+            cr.yandex/${{ secrets.YC_REGISTRY_ID }}/credit-frontend:${{ github.sha }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.32.1"
+
+      - name: Get kubeconfig (production)
+        run: yc managed-kubernetes cluster get-credentials --id "$CLUSTER_ID" --external --force
+
+      - name: Deploy + monitor + rollback on failure
+        shell: bash
+        env:
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+
+          rollback() {
+            echo "Deploy failed -> rollback..."
+            kubectl -n "$NAMESPACE" rollout undo deployment/backend || true
+            kubectl -n "$NAMESPACE" rollout undo deployment/frontend || true
+            kubectl -n "$NAMESPACE" get pods -o wide || true
+            kubectl -n "$NAMESPACE" logs deploy/backend -c dvc-pull --tail=200 || true
+          }
+          trap rollback ERR
+
+          kubectl apply -f k8s/00-namespace.yaml
+          kubectl apply -f k8s/10-configmap-backend.yaml
+
+          kubectl -n "$NAMESPACE" create secret generic s3-credentials \
+            --from-literal=AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID" \
+            --from-literal=AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl apply -f k8s/21-svc-backend.yaml
+          kubectl apply -f k8s/31-svc-frontend.yaml
+          kubectl apply -f k8s/20-deploy-backend.yaml
+          kubectl apply -f k8s/30-deploy-frontend.yaml
+          kubectl apply -f k8s/40-ingress.yaml
+
+          kubectl -n "$NAMESPACE" set image deployment/backend \
+            backend="$BACKEND_IMAGE" dvc-pull="$BACKEND_IMAGE"
+          kubectl -n "$NAMESPACE" set image deployment/frontend \
+            frontend="$FRONTEND_IMAGE"
+
+          kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=300s
+          kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=300s
+
+          echo "Port-forward frontend and check /api/health + /api/docs..."
+          kubectl -n "$NAMESPACE" port-forward svc/frontend-svc 8080:80 >/tmp/pf.log 2>&1 &
+          PF_PID=$!
+          sleep 3
+          curl -fsS "http://127.0.0.1:8080/api/health"
+          curl -fsS "http://127.0.0.1:8080/api/docs" | head -c 200
+          kill "$PF_PID" || true
+          wait "$PF_PID" || true

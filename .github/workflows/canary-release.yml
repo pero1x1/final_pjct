@@ -1,0 +1,127 @@
+name: canary-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to roll out as canary (e.g. <sha>)"
+        required: true
+      weight:
+        description: "Canary traffic weight (0-100)"
+        required: true
+        default: "10"
+      namespace:
+        description: "Kubernetes namespace"
+        required: true
+        default: "credit-scoring"
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    # If K8s API is not reachable from GitHub-hosted runners, set repo variable DEPLOY_RUNNER=self-hosted.
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+
+    env:
+      NAMESPACE: ${{ github.event.inputs.namespace }}
+      CLUSTER_ID: ${{ secrets.YC_K8S_CLUSTER_ID_STAGING }}
+      REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
+      IMAGE: cr.yandex/${{ secrets.YC_REGISTRY_ID }}/credit-backend:${{ github.event.inputs.image_tag }}
+      WEIGHT: ${{ github.event.inputs.weight }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install YC CLI
+        shell: bash
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -n
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+          yc --version
+
+      - name: Configure YC CLI (service account)
+        shell: bash
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$YC_SA_KEY_JSON" > sa-key.json
+          yc config profile create ci 2>/dev/null || true
+          yc config set service-account-key sa-key.json --profile ci
+          yc config profile activate ci
+          rm -f sa-key.json
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.32.1"
+
+      - name: Get kubeconfig
+        run: yc managed-kubernetes cluster get-credentials --id "$CLUSTER_ID" --external --force
+
+      - name: Apply canary resources (backend)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat <<EOF | kubectl -n "$NAMESPACE" apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: backend-canary
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: backend-canary
+            template:
+              metadata:
+                labels:
+                  app: backend-canary
+              spec:
+                containers:
+                  - name: backend
+                    image: ${IMAGE}
+                    imagePullPolicy: Always
+                    ports:
+                      - containerPort: 8000
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: backend-canary-svc
+          spec:
+            selector:
+              app: backend-canary
+            ports:
+              - name: http
+                port: 80
+                targetPort: 8000
+            type: ClusterIP
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: backend-canary-ingress
+            annotations:
+              nginx.ingress.kubernetes.io/canary: "true"
+              nginx.ingress.kubernetes.io/canary-weight: "${WEIGHT}"
+              nginx.ingress.kubernetes.io/use-regex: "true"
+              nginx.ingress.kubernetes.io/rewrite-target: /$2
+          spec:
+            ingressClassName: nginx
+            rules:
+              - http:
+                  paths:
+                    - path: /api(/|$)(.*)
+                      pathType: ImplementationSpecific
+                      backend:
+                        service:
+                          name: backend-canary-svc
+                          port:
+                            number: 80
+          EOF
+
+          kubectl -n "$NAMESPACE" rollout status deployment/backend-canary --timeout=300s
+          kubectl -n "$NAMESPACE" get pods -o wide
