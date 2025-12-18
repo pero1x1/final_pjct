@@ -47,7 +47,26 @@ jobs:
           YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
         run: |
           set -euo pipefail
-          printf '%s' "$YC_SA_KEY_JSON" > sa-key.json
+          if [ -z "${YC_SA_KEY_JSON:-}" ]; then
+            echo "ERROR: secret YC_SA_KEY_JSON is empty or not set"
+            exit 1
+          fi
+
+          # Accept either raw JSON or base64-encoded JSON
+          if printf '%s' "$YC_SA_KEY_JSON" | head -c 1 | grep -q '{'; then
+            printf '%s' "$YC_SA_KEY_JSON" > sa-key.json
+          else
+            printf '%s' "$YC_SA_KEY_JSON" | base64 -d > sa-key.json
+          fi
+
+          echo "sa-key.json size: $(wc -c < sa-key.json) bytes"
+          python3 - <<'PY'
+          import json
+          with open("sa-key.json", "r", encoding="utf-8") as f:
+            json.load(f)
+          print("sa-key.json is valid JSON")
+          PY
+
           yc config profile create ci 2>/dev/null || true
           yc config set service-account-key sa-key.json --profile ci
           yc config profile activate ci
