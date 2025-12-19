@@ -92,13 +92,37 @@ Expected:
 
 ## 5) Upload “current.csv” to S3 (new data signal)
 
+### Upload reference dataset (for drift check)
+
+Upload a stable reference dataset once:
+
+```powershell
+yc storage s3api put-object `
+  --bucket $BUCKET `
+  --key retraining/reference.csv `
+  --body data/processed/train_base.csv
+```
+
+Configure Airflow to use it:
+
+```powershell
+kubectl -n airflow exec $SCHED -- airflow variables set REFERENCE_S3_URI "s3://$BUCKET/retraining/reference.csv"
+kubectl -n airflow exec $SCHED -- airflow variables set DRIFT_THRESHOLD "0.0"
+```
+
+Expected:
+- `REFERENCE_S3_URI` is set
+- `DRIFT_THRESHOLD=0.0` makes retraining easier to trigger for a demo
+
+### Upload current dataset
+
 Use an existing dataset file from repo as an example:
 
 ```powershell
 yc storage s3api put-object `
   --bucket $BUCKET `
   --key retraining/current.csv `
-  --body data/processed/train.csv
+  --body data/processed/test_base.csv
 ```
 
 Expected:
@@ -153,4 +177,3 @@ kubectl -n credit-scoring get hpa
 
 Expected:
 - `backend-hpa` exists (may show `<unknown>` targets if metrics-server/resources are not configured).
-

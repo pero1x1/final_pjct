@@ -190,7 +190,10 @@ def check_new_data(**_context):
 def compute_drift(**context):
     bucket = _require_env("BUCKET")
     run_id = _safe_run_id(context["run_id"])
-    threshold = float(os.getenv("DRIFT_THRESHOLD", str(DRIFT_THRESHOLD_DEFAULT)))
+    threshold_str = os.getenv("DRIFT_THRESHOLD") or Variable.get(
+        "DRIFT_THRESHOLD", default_var=str(DRIFT_THRESHOLD_DEFAULT)
+    )
+    threshold = float(threshold_str)
 
     report_key = f"retraining/reports/{run_id}/drift_report.html"
     report_uri = f"s3://{bucket}/{report_key}"
@@ -209,7 +212,9 @@ def compute_drift(**context):
         logging.info(note)
     else:
         reference_local = Path("data/processed/train_base.csv")
-        reference_s3_uri = os.getenv("REFERENCE_S3_URI", "")
+        reference_s3_uri = os.getenv("REFERENCE_S3_URI") or Variable.get(
+            "REFERENCE_S3_URI", default_var=""
+        )
 
         if reference_local.exists():
             ref_path = str(reference_local)
@@ -339,7 +344,8 @@ def validate_model(**context):
 
     auc = metrics.get("test_auc")
     if auc is not None:
-        threshold = float(os.getenv("AUC_THRESHOLD", "0.6"))
+        threshold_str = os.getenv("AUC_THRESHOLD") or Variable.get("AUC_THRESHOLD", default_var="0.6")
+        threshold = float(threshold_str)
         if float(auc) < threshold:
             raise RuntimeError(f"Model validation failed: test_auc={auc} < {threshold}")
 
