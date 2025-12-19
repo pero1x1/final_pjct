@@ -7,7 +7,7 @@ from onnxruntime.quantization import QuantType, quantize_dynamic
 def prepare_model(inp: Path, out: Path) -> None:
     model = onnx.load(str(inp))
 
-    # Clear stale value_info to avoid shape inference issues.
+    # чистим value_info для shapes
     model.graph.ClearField("value_info")
     model = onnx.shape_inference.infer_shapes(model)
 

@@ -17,8 +17,9 @@ spec:
     metadata:
       labels:
         app: backend
-    spec:
+spec:
       initContainers:
+        # DVC pull при старте
         - name: dvc-pull
           image: cr.yandex/crpqca4kakrse7er8nvl/credit-backend:staging
           imagePullPolicy: Always
@@ -37,6 +38,7 @@ spec:
             - secretRef:
                 name: s3-credentials
           volumeMounts:
+            # общий emptyDir
             - name: dvc-data
               mountPath: /app/models
             - name: dvc-data
@@ -53,22 +55,26 @@ spec:
             - secretRef:
                 name: s3-credentials
           volumeMounts:
+            # общий emptyDir
             - name: dvc-data
               mountPath: /app/models
             - name: dvc-data
               mountPath: /app/data
           readinessProbe:
+            # проверка готовности
             httpGet:
               path: /health
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 5
           livenessProbe:
+            # проверка живости
             httpGet:
               path: /health
               port: 8000
             initialDelaySeconds: 30
             periodSeconds: 10
       volumes:
+        # сюда кладём артефакты
         - name: dvc-data
           emptyDir: {}

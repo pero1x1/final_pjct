@@ -2,4 +2,9 @@
 /nn_meta.json
 /model.onnx
 /model.int8.onnx
+/model.prepared.onnx
+/model.onnx.data
+/*.clean.onnx
+/model.fp32.clean.onnx
+/model.int8.clean.onnx
 /credit_default_model.pkl

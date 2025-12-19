@@ -95,6 +95,7 @@ def main() -> None:
     tmp_dir = Path("/tmp/retraining")
     tmp_dir.mkdir(parents=True, exist_ok=True)
     current_path = tmp_dir / "current.csv"
+    # скачиваем current.csv
     s3.download_file(bucket, key_current, str(current_path))
 
     df = pd.read_csv(current_path)
@@ -137,6 +138,7 @@ def main() -> None:
     metrics_path = tmp_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # грузим артефакты в S3
     s3.upload_file(str(model_path), bucket, model_key)
     s3.upload_file(str(metrics_path), bucket, metrics_key)
 

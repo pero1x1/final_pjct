@@ -35,11 +35,13 @@ def main():
     onnx_logits = sess.run(None, {"x": x})[0]
     onnx_logits = np.asarray(onnx_logits).reshape(-1)
 
+    # сравниваем logits
     diff = np.max(np.abs(torch_logits - onnx_logits))
     print("max_abs_diff_logits:", float(diff))
 
     torch_p = sigmoid(torch_logits)
     onnx_p = sigmoid(onnx_logits)
+    # сравниваем proba
     diff_p = np.max(np.abs(torch_p - onnx_p))
     print("max_abs_diff_proba :", float(diff_p))
 

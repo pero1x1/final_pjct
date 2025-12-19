@@ -138,6 +138,7 @@ def _psi(base: List[float], current: List[float], bins: int = 10, eps: float = 1
     return float(psi_val)
 
 
+# ищем current.csv
 def check_new_data(**_context):
     bucket = _require_env("BUCKET")
     key = "retraining/current.csv"
@@ -187,6 +188,7 @@ def check_new_data(**_context):
     }
 
 
+# считаем дрейф PSI
 def compute_drift(**context):
     bucket = _require_env("BUCKET")
     run_id = _safe_run_id(context["run_id"])
@@ -309,6 +311,7 @@ def compute_drift(**context):
     }
 
 
+# решаем retrain
 def branch_should_retrain(**context):
     ti = context["ti"]
     new_data = ti.xcom_pull(task_ids="check_new_data") or {}
@@ -321,6 +324,7 @@ def branch_should_retrain(**context):
     return "retrain_model" if (has_new_data and drift_exceeded) else "skip_retrain"
 
 
+# проверка артефактов
 def validate_model(**context):
     bucket = _require_env("BUCKET")
     run_id = _safe_run_id(context["run_id"])
@@ -379,6 +383,7 @@ with DAG(
 
     t_skip = EmptyOperator(task_id="skip_retrain")
 
+    # секреты для S3
     s3_secret_name = os.getenv("AIRFLOW_S3_SECRET_NAME", "airflow-s3")
     s3_secrets = [
         Secret("env", "AWS_ACCESS_KEY_ID", s3_secret_name, "AWS_ACCESS_KEY_ID"),
@@ -388,6 +393,7 @@ with DAG(
         Secret("env", "BUCKET", s3_secret_name, "BUCKET"),
     ]
 
+    # обучение в pod
     t_retrain = KubernetesPodOperator(
         task_id="retrain_model",
         name="credit-scoring-train",

@@ -121,6 +121,7 @@ jobs:
 
           k() { kubectl --request-timeout=180s "$@"; }
 
+          # авто откат при фейле
           rollback() {
             echo "Deploy failed -> rollback..."
             k -n "$NAMESPACE" rollout undo deployment/backend || true
@@ -156,6 +157,7 @@ jobs:
           k -n "$NAMESPACE" logs deploy/backend -c dvc-pull --tail=200
 
           echo "Port-forward frontend and check /api/health + /api/docs..."
+          # смоук тест через фронт
           kubectl -n "$NAMESPACE" port-forward svc/frontend-svc 8080:80 --address 127.0.0.1 >/tmp/pf.log 2>&1 &
           PF_PID=$!
           trap 'kill "$PF_PID" 2>/dev/null || true' EXIT

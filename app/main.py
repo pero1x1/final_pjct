@@ -10,9 +10,10 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, ge
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
-# Путь к модели берём из ENV, иначе дефолт
+# Модель из ENV
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "models/credit_default_model.pkl"))
 
+# Метрики Prometheus
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total",
     "Total number of HTTP requests",
@@ -30,7 +31,7 @@ MODEL_FILE_PRESENT = Gauge(
     ["path"],
 )
 
-# ——— входные фичи (должны совпасть с обучением) ———
+# Фичи как в обучении
 NUM = [
     "LIMIT_BAL",
     "AGE",
@@ -55,7 +56,7 @@ ALL_FEATS = NUM + CAT
 
 
 class Payload(BaseModel):
-    # числовые
+    # Числовые фичи
     LIMIT_BAL: float
     AGE: int
     BILL_AMT1: float
@@ -73,7 +74,7 @@ class Payload(BaseModel):
     utilization1: Optional[float] = None
     payment_ratio1: Optional[float] = None
     max_delay: int
-    # категориальные (как в датасете UCI)
+    # Категории как в UCI
     SEX: Literal[1, 2]
     EDUCATION: Literal[1, 2, 3, 4]
     MARRIAGE: Literal[1, 2, 3]
@@ -112,6 +113,7 @@ async def prometheus_metrics_middleware(request: Request, call_next):
 
 @app.get("/metrics")
 def metrics():
+    # Проверяем наличие модели
     MODEL_FILE_PRESENT.labels(str(MODEL_PATH)).set(1.0 if MODEL_PATH.exists() else 0.0)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
@@ -137,7 +139,7 @@ def health():
 def predict(x: Payload):
     if model is None:
         raise HTTPException(status_code=500, detail="Model is not loaded")
-    # Преобразуем в DataFrame с корректным порядком колонок
+    # DataFrame по фичам
     row = pd.DataFrame([{k: getattr(x, k) for k in ALL_FEATS}], columns=ALL_FEATS)
     proba = float(model.predict_proba(row)[:, 1][0])
     yhat = int(proba >= 0.5)

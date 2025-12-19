@@ -1,266 +1,126 @@
-# README.md
+# Credit Default Prediction (MLOps)
 
-```markdown
-# Credit Default Prediction — end-to-end MLOps
+Проект про предсказание дефолта по кредитной карте. Тут есть DVC пайплайн данных/модели, API на FastAPI, фронт на nginx, деплой в YC Managed Kubernetes и автоматизация через GitHub Actions + Airflow.
 
-Стек: **Python 3.11, scikit-learn, DVC, MLflow, FastAPI, Docker, Pandera, flake8/black/isort, GitHub Actions**.  
-Цель: построить и автоматизировать пайплайн PD-модели (вероятность дефолта) на датасете **Default of Credit Card Clients**.
+## Архитектура
 
-<p align="center">
-  <img src="reports/img/mlflowui.png" alt="MLflow UI" width="720"/>
-</p>
+- Backend (FastAPI): `app/main.py` (`/predict`, `/health`, `/metrics`)
+- Frontend (nginx): `frontend/` + `docker/frontend/`
+- DVC пайплайн: `dvc.yaml` (prepare -> features -> train -> monitor)
+- Артефакты: `models/credit_default_model.pkl` (через DVC pull в K8s initContainer)
+- Kubernetes манифесты: `k8s/` (namespace `credit-scoring`, Ingress nginx)
+- CI/CD: `.github/workflows/` (build/test/security + deploy staging + rollback)
+- Мониторинг: `observability/` + `k8s/observability/` (Prometheus/Grafana/Loki)
+- Retraining: `airflow/dags/` + `docker/trainer/` + `orchestration/airflow/`
 
-## Содержание
-- [Структура репо](#структура-репо)
-- [Быстрый старт](#быстрый-старт)
-- [Пайплайн DVC](#пайплайн-dvc)
-- [Эксперименты и MLflow](#эксперименты-и-mlflow)
-- [API (FastAPI) и Docker](#api-fastapi-и-docker)
-- [Мониторинг дрифта (PSI)](#мониторинг-дрифта-psi)
-- [Качество кода и CI](#качество-кода-и-ci)
-- [Скриншоты](#скриншоты)
+Скрины для отчёта: `reports/img/`.
 
----
+## Быстрый запуск локально (минимум)
 
-## Структура репо
-
-```
-<p align="center">
-  <img src="reports/img/prjct.png" width="720"/>
-</p>
-
-````
-
----
-
-## Быстрый старт
-
-1) Клонируем и ставим зависимости:
 ```bash
 python -m venv .venv
-# активируй venv и затем
-pip install -r requirements.txt
-````
+pip install -r requirements.txt -r requirements.api.txt
 
-2. Прогоняем весь пайплайн:
-
-```bash
+# собрать данные + модель + метрики
 dvc repro
-```
 
-3. Проверяем качество кода и тесты (или одной командой):
-
-```bash
-make check
-# включает: make format && make lint && make test
-```
-
-4. MLflow UI (локально):
-
-```bash
-make mlflow-ui
-# открой http://localhost:5000
-```
-
----
-
-## Пайплайн DVC
-
-Стадии (см. `dvc.yaml`):
-
-* **prepare** → загрузка/сплит
-* **features** → генерация фич
-* **train** → обучение базовой модели и сохранение `models/credit_default_model.pkl`
-* **monitor** → расчёт PSI по train vs test (`artifacts/psi.json`)
-
-Запуск:
-
-```bash
-make dvc-repro
-```
-
----
-
-## Эксперименты и MLflow
-
-Гиперпараметрический поиск для двух пайплайнов (LogReg/GBDT) — `src/models/search.py` (RandomizedSearchCV, scoring=roc_auc, cv=3).
-Лучшие модели и метрики логируются в MLflow, артефакт `model` доступен в UI.
-
-Пример запуска поиска:
-
-```bash
-make search
-# сохранение лучшей модели в models/best_search_model
-```
-
-Скриншоты:
-
-<p align="center">
-  <img src="reports/img/search_gbdt.png" width="720"/>
-</p>
-
----
-
-## API (FastAPI) и Docker
-
-Локально (без Docker):
-
-```bash
-make api PORT=8000
-# /docs → Swagger UI, /health
-```
-
-### Docker
-
-Собрать:
-
-```bash
-make docker-build DOCKER_IMG=credit-api TAG=latest
-```
-
-Запустить (с подмонтированной локальной папкой `models/`):
-
-> **Windows (PowerShell/Linux/Mac):**
-
-```bash
-make docker-run DOCKER_IMG=credit-api TAG=latest PORT=8000
-```
-
-> **Windows CMD (если вручную):**
-
-```bat
-docker run --rm -d --name credit-api -p 8000:8000 ^
-  -v %cd%\models:/app/models ^
-  -e MODEL_PATH=/app/models/credit_default_model.pkl ^
-  credit-api:latest
+# запустить API
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Проверка:
 
 ```bash
-curl http://localhost:8000/health
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/docs
 ```
 
-`POST /predict` — пример payload:
+## Деплой в staging (GitHub Actions -> YC Managed K8s)
 
-```json
-{
-  "LIMIT_BAL": 120000,
-  "AGE": 29,
-  "BILL_AMT1": 500, "BILL_AMT2": 600, "BILL_AMT3": 600, "BILL_AMT4": 600, "BILL_AMT5": 600, "BILL_AMT6": 400,
-  "PAY_AMT1": 0, "PAY_AMT2": 0, "PAY_AMT3": 0, "PAY_AMT4": 0, "PAY_AMT5": 0, "PAY_AMT6": 0,
-  "utilization1": 0, "payment_ratio1": 0, "max_delay": 0,
-  "SEX": 2, "EDUCATION": 2, "MARRIAGE": 1,
-  "PAY_0": 0, "PAY_2": 0, "PAY_3": 0, "PAY_4": 0, "PAY_5": 0, "PAY_6": 0
-}
-```
+Основной деплой: `.github/workflows/deploy-staging.yml`.
 
-Ответ:
+Нужные Secrets в GitHub:
+- `YC_SA_KEY_JSON`
+- `YC_K8S_CLUSTER_ID_STAGING`
+- `YC_REGISTRY_ID`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
 
-```json
-{
-  "proba_default": 0.26,
-  "predicted_class": 0,
-  "model_info": "pipeline"
-}
-```
+Где смотреть:
+- GitHub -> Actions -> `build-and-test` и `deploy-staging`
 
-<p align="center">
-  <img src="reports/img/creditapi.png" width="720"/>
-  <img src="reports/img/successful_response.png" width="720"/>
-</p>
+## Проверка по этапам 1-7
 
----
+Коротко, что где проверять. Подробные команды в `reports/img/bench.md` и в `docs/`.
 
-## Kubernetes (Stage 3: Docker + K8s + DVC pull)
+### Этап 1. Benchmark (NN -> ONNX -> INT8)
+- Скрипты: `src/onnx/`
+- Доказательства/цифры: `reports/img/bench.md`
 
-### Установка ingress-nginx (через Helm)
+### Этап 2. Terraform (YC)
+- Код: `infra/terraform/`
+- Быстрая проверка:
+  ```bash
+  cd infra/terraform/environments/staging
+  terraform validate
+  terraform plan
+  ```
 
-> Нужен Ingress Controller, т.к. доступ снаружи идёт через `k8s/40-ingress.yaml`.
+### Этап 3. Docker + Kubernetes + DVC pull
+- Dockerfiles: `docker/backend/Dockerfile`, `docker/frontend/Dockerfile`
+- Манифесты: `k8s/`
+- Проверка:
+  ```bash
+  kubectl -n credit-scoring get pods -o wide
+  kubectl -n credit-scoring logs deploy/backend -c dvc-pull --tail=50
+  kubectl -n credit-scoring get ingress
+  ```
 
-```bash
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm repo update
-kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
-helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx
-kubectl -n ingress-nginx get svc
-```
+### Этап 4. CI/CD (build -> test -> deploy -> monitor -> rollback)
+- Workflows: `.github/workflows/build-and-test.yml`, `.github/workflows/deploy-staging.yml`, `.github/workflows/rollback.yml`
+- Проверка: Actions зелёные, деплой обновляет образы по `github.sha`
 
-### Secret для Object Storage (нужен для `dvc pull` в initContainer)
+### Этап 5. Monitoring & Observability
+- Helm values: `observability/`
+- ServiceMonitor/alerts/dashboards: `k8s/observability/`
+- Команды: `docs/stage5-verify.md`
 
-Вариант 1 (через `--from-literal`, файл не создаём):
+### Этап 6. Стратегии/надёжность (минимум)
+- Canary/rollback: `.github/workflows/canary-release.yml`, `.github/workflows/rollback.yml`
+- HPA (опц.): `k8s/autoscaling/hpa-backend.yaml`
 
-```bash
-kubectl -n credit-scoring create secret generic s3-credentials \
-  --from-literal=AWS_ACCESS_KEY_ID="<PUT_HERE>" \
-  --from-literal=AWS_SECRET_ACCESS_KEY="<PUT_HERE>"
-```
+### Этап 7. Retraining pipeline (Airflow)
+- DAG: `airflow/dags/credit_scoring_retraining.py`
+- Trainer image: `docker/trainer/Dockerfile`
+- Helm values: `orchestration/airflow/values.yaml`
+- Команды: `docs/stage7-verify.md`
 
-Вариант 2 (через yaml, но **не коммитим**):
+## Метрики, логи, алерты
 
-```bash
-cp k8s/11-secret-s3.yaml.example k8s/11-secret-s3.yaml
-kubectl apply -f k8s/11-secret-s3.yaml
-```
+- Метрики API: `GET /metrics` (Prometheus)
+- PrometheusRule/ServiceMonitor: `k8s/observability/`
+- Runbook: `docs/runbooks/observability.md`
 
-> `k8s/11-secret-s3.yaml` игнорируется через `.gitignore`.
+## Security checks в CI
 
-### Деплой
+Смотри `.github/workflows/build-and-test.yml`:
+- trivy fs scan
+- pip-audit
+- dependency review (PR)
+- npm audit (если есть `frontend/package.json`)
 
-```bash
-kubectl apply -f k8s/00-namespace.yaml
-kubectl apply -f k8s/10-configmap-backend.yaml
-# secret: см. выше
-kubectl apply -f k8s/20-deploy-backend.yaml
-kubectl apply -f k8s/21-svc-backend.yaml
-kubectl apply -f k8s/30-deploy-frontend.yaml
-kubectl apply -f k8s/31-svc-frontend.yaml
-kubectl apply -f k8s/40-ingress.yaml
-```
+## Откат (rollback)
 
-## Мониторинг дрифта (PSI)
+- Авто откат в деплое: `.github/workflows/deploy-staging.yml` (rollout undo при ошибке)
+- Ручной откат: `.github/workflows/rollback.yml`
 
-Скрипт: `src/monitor/psi.py`
-Запуск отдельно:
+## Что получилось
 
-```bash
-make psi
-# отчёт → artifacts/psi.json (средний PSI и пофичево)
-```
+- Есть DVC пайплайн и метрики качества/дрейфа.
+- API + фронт работают в K8s через Ingress.
+- Модель и данные приезжают через `dvc pull` (initContainer).
+- CI делает линт, тесты и security checks.
+- CD деплоит в staging и делает rollback при проблемах.
+- Есть мониторинг (Prometheus/Grafana/Loki) и алерты.
+- Есть Airflow DAG для retrain по данным + дрейфу.
 
----
-
-## Качество кода и CI
-
-Локально:
-
-```bash
-make format   # black + isort
-make lint     # flake8
-make test     # pytest
-```
-
-GitHub Actions:
-
-* **ci.yml** — формат, линт, тесты, `dvc repro`, загрузка артефактов (метрики, ROC и т.д.)
-* **ci-docker.yml** — сборка Docker-образа по релиз-тегу `v*.*.*` и пуш в Docker Hub
-  Для пуша выстави секреты репозитория:
-
-  * `DOCKERHUB_USERNAME`
-  * `DOCKERHUB_TOKEN`
-
----
-
-## Скриншоты
-
-<p align="center">
-  <img src="reports/img/best_search.png" width="720"/>
-  <img src="reports/img/docker.png" width="720"/>
-  <img src="reports/img/dockerhealth.png" width="720"/>
-  <img src="reports/img/mlflowui.png" width="720"/>
-  <img src="reports/img/search_gbdt.png" width="720"/>
-</p>
-
----
-
-```

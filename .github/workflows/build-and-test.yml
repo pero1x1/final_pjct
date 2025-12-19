@@ -31,6 +31,7 @@ jobs:
           pip install flake8 black "dvc[s3]" pip-audit
 
       - name: Dependency review (PR only)
+        # security проверки
         if: github.event_name == 'pull_request'
         uses: actions/dependency-review-action@v4
 
@@ -64,6 +65,7 @@ jobs:
           black --check src tests
 
       - name: Repro DVC pipeline (push only)
+        # прогон DVC пайплайна
         if: github.event_name != 'pull_request'
         env:
           PYTHONPATH: ${{ github.workspace }}

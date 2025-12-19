@@ -28,3 +28,6 @@ observability/*values*.override.yaml
 # Stage 7 (Airflow / orchestration) secrets
 orchestration/**/secret*.yaml
 airflow/**/secret*.yaml
+
+# Локальные артефакты (не коммитим)
+metrics.json
