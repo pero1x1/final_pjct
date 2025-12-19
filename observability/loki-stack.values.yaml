@@ -1,0 +1,12 @@
+loki:
+  enabled: true
+  isDefault: false
+  service:
+    type: ClusterIP
+
+promtail:
+  enabled: true
+  config:
+    logLevel: info
+    clients:
+      - url: http://loki:3100/loki/api/v1/push

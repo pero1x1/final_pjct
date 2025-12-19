@@ -1,0 +1,28 @@
+grafana:
+  enabled: true
+
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  service:
+    type: ClusterIP
+
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.logging.svc.cluster.local:3100
+      isDefault: false
+      jsonData:
+        timeInterval: "10s"
+
+prometheus:
+  service:
+    type: ClusterIP

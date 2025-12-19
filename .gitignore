@@ -17,3 +17,10 @@ infra/terraform/**/sa-key.json
 
 # K8s secrets (create from *.example, do not commit)
 k8s/*secret*.yaml
+k8s/observability/*secret*.yaml
+
+# Observability secrets/overrides (do not commit)
+observability/*secret*.yaml
+observability/*values*.local.yaml
+observability/*values*.private.yaml
+observability/*values*.override.yaml

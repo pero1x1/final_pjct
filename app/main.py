@@ -1,14 +1,34 @@
 import os
+import time
 from pathlib import Path
 from typing import Literal, Optional
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
+from starlette.responses import Response
 
 # Путь к модели берём из ENV, иначе дефолт
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "models/credit_default_model.pkl"))
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total number of HTTP requests",
+    ["method", "path", "status"],
+)
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "path", "status"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
+MODEL_FILE_PRESENT = Gauge(
+    "model_file_present",
+    "1 if the model file exists, else 0",
+    ["path"],
+)
 
 # ——— входные фичи (должны совпасть с обучением) ———
 NUM = [
@@ -72,6 +92,29 @@ class Prediction(BaseModel):
 
 
 app = FastAPI(title="Credit Default API", version="1.0")
+
+
+@app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = None
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        route = request.scope.get("route")
+        path = getattr(route, "path", request.url.path)
+        status = str(getattr(response, "status_code", 500))
+        duration = time.perf_counter() - start
+        HTTP_REQUESTS_TOTAL.labels(request.method, path, status).inc()
+        HTTP_REQUEST_DURATION_SECONDS.labels(request.method, path, status).observe(duration)
+
+
+@app.get("/metrics")
+def metrics():
+    MODEL_FILE_PRESENT.labels(str(MODEL_PATH)).set(1.0 if MODEL_PATH.exists() else 0.0)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 
 # Загружаем модель при старте
 model = None

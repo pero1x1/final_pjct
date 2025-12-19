@@ -1,0 +1,65 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: credit-scoring-backend-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: credit-scoring.backend
+      rules:
+        - alert: BackendDown
+          expr: up{job="backend",namespace="credit-scoring"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Backend target is down"
+            description: "Prometheus cannot scrape backend for more than 2 minutes."
+            runbook_url: "docs/runbooks/observability.md"
+        - alert: High5xxRate
+          expr: |
+            (
+              sum(rate(http_requests_total{job="backend",namespace="credit-scoring",status=~"5.."}[10m]))
+              /
+              sum(rate(http_requests_total{job="backend",namespace="credit-scoring"}[10m]))
+            ) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High 5xx error rate (>5%)"
+            description: "Backend 5xx ratio is above 5% for 10 minutes."
+            runbook_url: "docs/runbooks/observability.md"
+        - alert: HighLatencyP95
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum(rate(http_request_duration_seconds_bucket{job="backend",namespace="credit-scoring"}[10m])) by (le)
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High latency p95 (>0.5s)"
+            description: "Backend p95 latency is above 0.5s for 10 minutes."
+            runbook_url: "docs/runbooks/observability.md"
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="credit-scoring"}[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pods are restarting"
+            description: "One or more containers in credit-scoring namespace restarted within the last 10 minutes."
+            runbook_url: "docs/runbooks/observability.md"
+        - alert: ModelMissing
+          expr: model_file_present{job="backend",namespace="credit-scoring"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Model file is missing"
+            description: "MODEL_PATH does not exist inside the backend container."
+            runbook_url: "docs/runbooks/observability.md"
