@@ -1,0 +1,31 @@
+# Minimal Airflow deployment for Stage 7 retraining DAGs.
+# Install with: helm upgrade --install airflow apache-airflow/airflow -n airflow -f orchestration/airflow/values.yaml
+
+executor: "LocalExecutor"
+
+config:
+  core:
+    load_examples: "False"
+
+# Load S3 connection settings into scheduler/webserver pods (no secrets in git).
+extraEnvFrom: |
+  - secretRef:
+      name: airflow-s3
+
+dags:
+  gitSync:
+    enabled: true
+    repo: https://github.com/pero1x1/final_pjct.git
+    branch: main
+    ref: main
+    depth: 1
+    subPath: "airflow/dags"
+    period: 30s
+
+webserver:
+  service:
+    type: ClusterIP
+
+redis:
+  enabled: false
+
